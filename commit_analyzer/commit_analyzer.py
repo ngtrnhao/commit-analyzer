@@ -504,24 +504,38 @@ def analyze_changes(diff: str, original_content: Dict[str, str]) -> Optional[str
             message += f"({commit_scope})"
         message += f": {commit_desc}"
         
-        # Show detailed analysis
-        console.print("\n[bold blue]Detailed Change Analysis:[/bold blue]")
+        # Show detailed analysis with enhanced styling
+        console.print("\n[bold cyan]📊 Change Analysis Report[/bold cyan]")
+        console.print("[bold cyan]=" * 50 + "[/bold cyan]")
         
-        # Show file operations
+        # Show file operations with icons
         if file_changes['added_files'] or file_changes['deleted_files'] or file_changes['renamed_files']:
-            console.print("\n[bold]File Operations:[/bold]")
+            console.print("\n[bold]📁 File Operations[/bold]")
+            console.print("[bold cyan]-" * 30 + "[/bold cyan]")
             if file_changes['added_files']:
-                console.print(f"[green]Added:[/green] {', '.join(sorted(file_changes['added_files']))}")
+                console.print(f"✨ [green]Added:[/green] {', '.join(sorted(file_changes['added_files']))}")
             if file_changes['deleted_files']:
-                console.print(f"[red]Deleted:[/red] {', '.join(sorted(file_changes['deleted_files']))}")
+                console.print(f"🗑️ [red]Deleted:[/red] {', '.join(sorted(file_changes['deleted_files']))}")
             if file_changes['renamed_files']:
-                console.print(f"[yellow]Renamed:[/yellow] {', '.join(f'{old} -> {new}' for old, new in sorted(file_changes['renamed_files']))}")
+                console.print(f"🔄 [yellow]Renamed:[/yellow] {', '.join(f'{old} → {new}' for old, new in sorted(file_changes['renamed_files']))}")
         
-        # Show content changes
-        console.print("\n[bold]Content Changes:[/bold]")
+        # Show content changes with icons
+        console.print("\n[bold]📝 Content Changes[/bold]")
+        console.print("[bold cyan]-" * 30 + "[/bold cyan]")
         for category in ['security', 'features', 'fixes', 'refactors', 'performance', 
                         'tests', 'docs', 'config', 'dependencies']:
             if code_changes[category]:
+                icon = {
+                    'security': '🔒',
+                    'features': '✨',
+                    'fixes': '🐛',
+                    'refactors': '🔄',
+                    'performance': '⚡',
+                    'tests': '🧪',
+                    'docs': '📚',
+                    'config': '⚙️',
+                    'dependencies': '📦'
+                }[category]
                 color = {
                     'security': 'red',
                     'features': 'green',
@@ -533,18 +547,25 @@ def analyze_changes(diff: str, original_content: Dict[str, str]) -> Optional[str
                     'config': 'cyan',
                     'dependencies': 'blue'
                 }[category]
-                console.print(f"[{color}]{category.title()}:[/{color}] {', '.join(sorted(code_changes[category]))}")
+                console.print(f"{icon} [{color}]{category.title()}:[/{color}] {', '.join(sorted(code_changes[category]))}")
         
-        # Show code metrics
+        # Show code metrics with icons
         metrics = code_changes['code_metrics']
-        console.print("\n[bold]Code Metrics:[/bold]")
-        console.print(f"[blue]Files changed:[/blue] {metrics['files_changed']}")
-        console.print(f"[green]Lines added:[/green] {metrics['lines_added']}")
-        console.print(f"[red]Lines removed:[/red] {metrics['lines_removed']}")
+        console.print("\n[bold]📈 Code Metrics[/bold]")
+        console.print("[bold cyan]-" * 30 + "[/bold cyan]")
+        console.print(f"📂 [blue]Files changed:[/blue] {metrics['files_changed']}")
+        console.print(f"➕ [green]Lines added:[/green] {metrics['lines_added']}")
+        console.print(f"➖ [red]Lines removed:[/red] {metrics['lines_removed']}")
+        
+        # Show suggested commit message with enhanced styling
+        console.print("\n[bold]💡 Suggested Commit Message[/bold]")
+        console.print("[bold cyan]-" * 30 + "[/bold cyan]")
+        console.print(f"[bold cyan]{message}[/bold cyan]")
+        console.print("[bold cyan]=" * 50 + "[/bold cyan]")
         
         return message
     except Exception as e:
-        console.print(f"[red]Error generating commit message: {str(e)}[/red]")
+        console.print(f"[red]❌ Error generating commit message: {str(e)}[/red]")
         return None
 
 def main():
