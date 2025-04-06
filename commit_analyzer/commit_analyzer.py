@@ -7,6 +7,7 @@ import ast
 from typing import Dict, Set, List, Optional, Tuple
 from difflib import unified_diff
 import json
+from collections import defaultdict
 
 console = Console()
 
@@ -141,360 +142,160 @@ def analyze_package_json(file_path: str) -> Dict:
         console.print(f"[red]Error analyzing {file_path}: {str(e)}[/red]")
         return {}
 
-def analyze_diff_changes(diff_lines: List[str], original_content: Dict[str, str]) -> Dict:
-    """Analyze the changes between original and modified files."""
-    changes = {
+def analyze_code_structure(file_path: str, content: str) -> Dict:
+    """Analyze the structure and patterns in code files."""
+    analysis = {
+        'imports': set(),
         'functions': set(),
         'classes': set(),
-        'imports': set(),
         'variables': set(),
-        'tests': set(),
-        'styles': set(),
-        'docs': set(),
-        'components': set(),
-        'dependencies': set(),
-        'scripts': set(),
-        'added_lines': set(),
-        'removed_lines': set(),
-        'security': set(),
-        'features': set(),
-        'fixes': set(),
-        'refactors': set(),
-        'performance': set()
+        'patterns': set()
     }
     
-    current_file = None
-    current_hunk = []
-    
-    for line in diff_lines:
+    lines = content.split('\n')
+    for line in lines:
         line = line.strip()
-        if line.startswith('+++ b/'):
-            current_file = line[6:]
-            current_hunk = []
-            continue
-            
-        if not line or line.startswith('---'):
-            continue
-            
-        if line.startswith('@@'):
-            # Process previous hunk
-            if current_hunk and current_file:
-                analyze_hunk_changes(current_hunk, current_file, original_content.get(current_file, ''), changes)
-            current_hunk = []
-            continue
-            
-        current_hunk.append(line)
         
-        # Track added/removed lines
-        if line.startswith('+'):
-            changes['added_lines'].add(line[1:])
-        elif line.startswith('-'):
-            changes['removed_lines'].add(line[1:])
-    
-    # Process last hunk
-    if current_hunk and current_file:
-        analyze_hunk_changes(current_hunk, current_file, original_content.get(current_file, ''), changes)
-    
-    return changes
-
-def analyze_hunk_changes(hunk: List[str], file_path: str, original_content: str, changes: Dict):
-    """Analyze changes in a specific hunk of a file."""
-    if file_path.endswith('.py'):
-        analyze_python_hunk(hunk, file_path, original_content, changes)
-    elif file_path.endswith(('.js', '.jsx', '.ts', '.tsx')):
-        analyze_js_hunk(hunk, file_path, original_content, changes)
-    elif file_path == 'package.json':
-        analyze_package_json_hunk(hunk, file_path, original_content, changes)
-
-def analyze_code_semantics(content: str, file_type: str) -> Dict:
-    """Analyze code semantics to understand the purpose and impact of changes."""
-    analysis = {
-        'features': set(),
-        'fixes': set(),
-        'refactors': set(),
-        'security': set(),
-        'performance': set(),
-        'tests': set(),
-        'docs': set()
-    }
-    
-    # Common patterns for different types of changes
-    patterns = {
-        'features': [
-            r'add\w*',
-            r'create\w*',
-            r'new\w*',
-            r'implement\w*',
-            r'feature\w*'
-        ],
-        'fixes': [
-            r'fix\w*',
-            r'bug\w*',
-            r'error\w*',
-            r'issue\w*',
-            r'correct\w*'
-        ],
-        'refactors': [
-            r'refactor\w*',
-            r'optimize\w*',
-            r'improve\w*',
-            r'clean\w*',
-            r'reorganize\w*'
-        ],
-        'security': [
-            r'security\w*',
-            r'vulnerability\w*',
-            r'protect\w*',
-            r'secure\w*',
-            r'authenticate\w*'
-        ],
-        'performance': [
-            r'performance\w*',
-            r'speed\w*',
-            r'optimize\w*',
-            r'efficient\w*',
-            r'fast\w*'
-        ],
-        'tests': [
-            r'test\w*',
-            r'verify\w*',
-            r'validate\w*',
-            r'check\w*',
-            r'assert\w*'
-        ],
-        'docs': [
-            r'doc\w*',
-            r'comment\w*',
-            r'explain\w*',
-            r'describe\w*',
-            r'note\w*'
-        ]
-    }
-    
-    # Analyze based on file type
-    if file_type == 'py':
-        # Parse Python AST
-        try:
-            tree = ast.parse(content)
-            for node in ast.walk(tree):
-                if isinstance(node, ast.FunctionDef):
-                    # Analyze function name and docstring
-                    func_name = node.name.lower()
-                    docstring = ast.get_docstring(node)
-                    if docstring:
-                        content += f"\n{docstring}"
-                    
-                    # Check function name patterns
-                    for category, category_patterns in patterns.items():
-                        if any(re.search(pattern, func_name) for pattern in category_patterns):
-                            analysis[category].add(node.name)
-                elif isinstance(node, ast.ClassDef):
-                    # Analyze class name and docstring
-                    class_name = node.name.lower()
-                    docstring = ast.get_docstring(node)
-                    if docstring:
-                        content += f"\n{docstring}"
-                    
-                    # Check class name patterns
-                    for category, category_patterns in patterns.items():
-                        if any(re.search(pattern, class_name) for pattern in category_patterns):
-                            analysis[category].add(node.name)
-        except:
-            pass
-    elif file_type in ['js', 'jsx', 'ts', 'tsx']:
-        # Analyze JavaScript/TypeScript
-        for category, category_patterns in patterns.items():
-            for pattern in category_patterns:
-                matches = re.finditer(pattern, content.lower())
-                for match in matches:
-                    # Get the context around the match
-                    start = max(0, match.start() - 50)
-                    end = min(len(content), match.end() + 50)
-                    context = content[start:end]
-                    analysis[category].add(context.strip())
-    
-    # Analyze comments and docstrings
-    for category, category_patterns in patterns.items():
-        for pattern in category_patterns:
-            matches = re.finditer(pattern, content.lower())
-            for match in matches:
-                # Get the context around the match
-                start = max(0, match.start() - 50)
-                end = min(len(content), match.end() + 50)
-                context = content[start:end]
-                analysis[category].add(context.strip())
+        # Analyze imports
+        if line.startswith('import ') or line.startswith('from '):
+            analysis['imports'].add(line)
+        
+        # Analyze function definitions
+        if line.startswith('def '):
+            func_name = line.split('def ')[1].split('(')[0].strip()
+            analysis['functions'].add(func_name)
+        
+        # Analyze class definitions
+        if line.startswith('class '):
+            class_name = line.split('class ')[1].split('(')[0].strip()
+            analysis['classes'].add(class_name)
+        
+        # Analyze variable assignments
+        if '=' in line and not line.startswith(('#', 'def ', 'class ')):
+            var_name = line.split('=')[0].strip()
+            if not var_name.startswith((' ', '\t')):
+                analysis['variables'].add(var_name)
+        
+        # Analyze common patterns
+        if 'if __name__ == "__main__":' in line:
+            analysis['patterns'].add('main block')
+        if '@' in line:
+            analysis['patterns'].add('decorator')
+        if 'try:' in line:
+            analysis['patterns'].add('try-except')
+        if 'with ' in line:
+            analysis['patterns'].add('context manager')
     
     return analysis
 
-def analyze_python_hunk(hunk: List[str], file_path: str, original_content: str, changes: Dict):
-    """Analyze changes in a Python file hunk."""
-    try:
-        # Parse original content
-        original_tree = ast.parse(original_content) if original_content else None
-        original_funcs = set()
-        original_classes = set()
-        original_imports = set()
-        if original_tree:
-            for node in ast.walk(original_tree):
-                if isinstance(node, ast.FunctionDef):
-                    original_funcs.add(node.name)
-                elif isinstance(node, ast.ClassDef):
-                    original_classes.add(node.name)
-                elif isinstance(node, (ast.Import, ast.ImportFrom)):
-                    for name in node.names:
-                        original_imports.add(name.name)
-        
-        # Parse modified content
-        modified_content = '\n'.join(line[1:] for line in hunk if line.startswith('+'))
-        modified_tree = ast.parse(modified_content) if modified_content else None
-        if modified_tree:
-            for node in ast.walk(modified_tree):
-                if isinstance(node, ast.FunctionDef):
-                    if node.name not in original_funcs:
-                        changes['functions'].add(node.name)
-                        # Analyze function semantics
-                        semantics = analyze_code_semantics(modified_content, 'py')
-                        for category, items in semantics.items():
-                            if items:
-                                changes[category].add(node.name)
-                elif isinstance(node, ast.ClassDef):
-                    if node.name not in original_classes:
-                        changes['classes'].add(node.name)
-                        # Analyze class semantics
-                        semantics = analyze_code_semantics(modified_content, 'py')
-                        for category, items in semantics.items():
-                            if items:
-                                changes[category].add(node.name)
-                elif isinstance(node, (ast.Import, ast.ImportFrom)):
-                    for name in node.names:
-                        if name.name not in original_imports:
-                            changes['imports'].add(name.name)
-    except Exception as e:
-        console.print(f"[red]Error analyzing Python hunk in {file_path}: {str(e)}[/red]")
-
-def analyze_js_hunk(hunk: List[str], file_path: str, original_content: str, changes: Dict):
-    """Analyze changes in a JavaScript file hunk."""
-    try:
-        # Extract functions and classes from original content
-        original_funcs = set(re.findall(r'function\s+(\w+)\s*\(', original_content))
-        original_classes = set(re.findall(r'class\s+(\w+)\s*{', original_content))
-        original_imports = set(re.findall(r'import\s+.*?from\s+[\'"](.*?)[\'"]', original_content))
-        
-        # Extract functions and classes from modified content
-        modified_content = '\n'.join(line[1:] for line in hunk if line.startswith('+'))
-        modified_funcs = set(re.findall(r'function\s+(\w+)\s*\(', modified_content))
-        modified_classes = set(re.findall(r'class\s+(\w+)\s*{', modified_content))
-        modified_imports = set(re.findall(r'import\s+.*?from\s+[\'"](.*?)[\'"]', modified_content))
-        
-        # Find new functions and classes
-        new_funcs = modified_funcs - original_funcs
-        new_classes = modified_classes - original_classes
-        new_imports = modified_imports - original_imports
-        
-        changes['functions'].update(new_funcs)
-        changes['classes'].update(new_classes)
-        changes['imports'].update(new_imports)
-        
-        # Analyze semantics of new functions and classes
-        if new_funcs or new_classes:
-            semantics = analyze_code_semantics(modified_content, 'js')
-            for category, items in semantics.items():
-                if items:
-                    changes[category].update(new_funcs | new_classes)
-        
-        # Extract React components
-        components = set(re.findall(r'const\s+(\w+)\s*=\s*\(\)\s*=>\s*{', modified_content))
-        changes['components'].update(components)
-    except Exception as e:
-        console.print(f"[red]Error analyzing JS hunk in {file_path}: {str(e)}[/red]")
-
-def analyze_package_json_hunk(hunk: List[str], file_path: str, original_content: str, changes: Dict):
-    """Analyze changes in package.json hunk."""
-    try:
-        # Parse original content
-        original_data = {}
-        if original_content:
-            try:
-                original_data = json.loads(original_content)
-            except:
-                pass
-        
-        # Parse modified content
-        modified_content = '\n'.join(line[1:] for line in hunk if line.startswith('+'))
-        modified_data = {}
-        try:
-            modified_data = json.loads(modified_content)
-        except:
-            pass
-        
-        # Compare dependencies
-        if 'dependencies' in modified_data:
-            original_deps = original_data.get('dependencies', {})
-            modified_deps = modified_data['dependencies']
-            for dep, version in modified_deps.items():
-                if dep not in original_deps or original_deps[dep] != version:
-                    changes['dependencies'].add(f"{dep}@{version}")
-        
-        # Compare devDependencies
-        if 'devDependencies' in modified_data:
-            original_dev_deps = original_data.get('devDependencies', {})
-            modified_dev_deps = modified_data['devDependencies']
-            for dep, version in modified_dev_deps.items():
-                if dep not in original_dev_deps or original_dev_deps[dep] != version:
-                    changes['dependencies'].add(f"{dep}@{version}")
-        
-        # Compare scripts
-        if 'scripts' in modified_data:
-            original_scripts = original_data.get('scripts', {})
-            modified_scripts = modified_data['scripts']
-            for script, command in modified_scripts.items():
-                if script not in original_scripts or original_scripts[script] != command:
-                    changes['scripts'].add(script)
-    except Exception as e:
-        console.print(f"[red]Error analyzing package.json hunk: {str(e)}[/red]")
-
 def analyze_file_changes(diff: str) -> Dict:
-    """Analyze what kind of files were changed."""
-    files_changed = [line[6:] for line in diff.split('\n') if line.startswith('+++ b/')]
-    
-    # Analyze file types and content
-    file_info = {
-        'files': files_changed,
-        'has_docs': False,
-        'has_tests': False,
-        'has_styles': False,
-        'components': set(),
-        'modules': set(),
-        'dependencies': set(),
-        'scripts': set()
+    """Analyze changes in files with more detailed categorization."""
+    changes = {
+        'files': set(),
+        'added_files': set(),
+        'deleted_files': set(),
+        'modified_files': set(),
+        'renamed_files': set(),
+        'file_types': defaultdict(set),
+        'content_changes': defaultdict(lambda: {'added': [], 'removed': []})
     }
     
-    for file in files_changed:
-        # Check file types
-        if file.endswith(('.md', '.txt', '.rst', '.doc', '.docx')):
-            file_info['has_docs'] = True
-        elif 'test' in file.lower() or 'spec' in file.lower():
-            file_info['has_tests'] = True
-        elif file.endswith(('.css', '.scss', '.less', '.sass', '.style')):
-            file_info['has_styles'] = True
-        elif file == 'package.json':
-            analysis = analyze_package_json(file)
-            file_info['dependencies'].update(analysis['dependencies'])
-            file_info['dependencies'].update(analysis['dev_dependencies'])
-            file_info['scripts'].update(analysis['scripts'])
-            
-        # Analyze project structure
-        parts = file.split('/')
-        if 'components' in parts:
-            idx = parts.index('components')
-            if idx + 1 < len(parts):
-                file_info['components'].add(parts[idx + 1])
-        elif 'modules' in parts:
-            idx = parts.index('modules')
-            if idx + 1 < len(parts):
-                file_info['modules'].add(parts[idx + 1])
+    current_file = None
+    for line in diff.split('\n'):
+        if line.startswith('diff --git'):
+            current_file = line.split(' ')[2][2:]  # Remove 'a/' prefix
+            changes['files'].add(current_file)
+            file_ext = os.path.splitext(current_file)[1]
+            changes['file_types'][file_ext].add(current_file)
+        
+        elif line.startswith('new file mode'):
+            changes['added_files'].add(current_file)
+        
+        elif line.startswith('deleted file mode'):
+            changes['deleted_files'].add(current_file)
+            changes['files'].remove(current_file)
+        
+        elif line.startswith('rename from'):
+            old_file = line.split(' ')[2]
+            changes['renamed_files'].add((old_file, current_file))
+            changes['files'].remove(old_file)
+        
+        elif line.startswith('+') and not line.startswith('+++'):
+            if current_file:
+                changes['content_changes'][current_file]['added'].append(line[1:])
+        
+        elif line.startswith('-') and not line.startswith('---'):
+            if current_file:
+                changes['content_changes'][current_file]['removed'].append(line[1:])
     
-    return file_info
+    # Determine modified files
+    changes['modified_files'] = changes['files'] - changes['added_files'] - {f[1] for f in changes['renamed_files']}
+    
+    return changes
+
+def analyze_diff_changes(diff_lines: List[str], original_content: Dict[str, str]) -> Dict:
+    """Analyze code changes with more detailed categorization."""
+    changes = {
+        'security': set(),
+        'features': set(),
+        'fixes': set(),
+        'refactors': set(),
+        'performance': set(),
+        'components': set(),
+        'dependencies': set(),
+        'scripts': set(),
+        'tests': set(),
+        'docs': set(),
+        'config': set(),
+        'style': set(),
+        'added_lines': [],
+        'removed_lines': [],
+        'code_metrics': {
+            'lines_added': 0,
+            'lines_removed': 0,
+            'files_changed': 0,
+            'complexity_changes': 0
+        }
+    }
+    
+    current_file = None
+    for line in diff_lines:
+        if line.startswith('diff --git'):
+            current_file = line.split(' ')[2][2:]
+            changes['code_metrics']['files_changed'] += 1
+        
+        elif line.startswith('+') and not line.startswith('+++'):
+            content = line[1:]
+            changes['added_lines'].append(content)
+            changes['code_metrics']['lines_added'] += 1
+            
+            if current_file:
+                # Enhanced pattern detection
+                if any(keyword in content.lower() for keyword in ['password', 'secret', 'key', 'token']):
+                    changes['security'].add(current_file)
+                elif any(keyword in content.lower() for keyword in ['def ', 'class ', 'async def']):
+                    changes['features'].add(current_file)
+                elif any(keyword in content.lower() for keyword in ['fix', 'bug', 'error', 'exception']):
+                    changes['fixes'].add(current_file)
+                elif any(keyword in content.lower() for keyword in ['refactor', 'cleanup', 'optimize']):
+                    changes['refactors'].add(current_file)
+                elif any(keyword in content.lower() for keyword in ['performance', 'speed', 'efficient']):
+                    changes['performance'].add(current_file)
+                elif any(keyword in content.lower() for keyword in ['test_', 'assert', 'pytest']):
+                    changes['tests'].add(current_file)
+                elif any(keyword in content.lower() for keyword in ['"""', "'''", '#']):
+                    changes['docs'].add(current_file)
+                elif any(keyword in content.lower() for keyword in ['config', 'settings', 'env']):
+                    changes['config'].add(current_file)
+                elif any(keyword in content.lower() for keyword in ['import ', 'from ', 'require']):
+                    changes['dependencies'].add(current_file)
+        
+        elif line.startswith('-') and not line.startswith('---'):
+            content = line[1:]
+            changes['removed_lines'].append(content)
+            changes['code_metrics']['lines_removed'] += 1
+    
+    return changes
 
 def generate_commit_type(changes: Dict, file_changes: Dict) -> str:
     """Generate commit type based on changes."""
@@ -508,11 +309,11 @@ def generate_commit_type(changes: Dict, file_changes: Dict) -> str:
         return 'refactor'
     elif changes['performance']:
         return 'perf'
-    elif file_changes['has_docs'] or changes['docs']:
+    elif changes['docs']:
         return 'docs'
-    elif file_changes['has_tests'] or changes['tests']:
+    elif changes['tests']:
         return 'test'
-    elif file_changes['has_styles']:
+    elif changes['style']:
         return 'style'
     elif changes['dependencies']:
         return 'deps'
@@ -522,18 +323,27 @@ def generate_commit_type(changes: Dict, file_changes: Dict) -> str:
 
 def generate_commit_scope(changes: Dict, file_changes: Dict) -> Optional[str]:
     """Generate commit scope based on changes."""
-    # Check for component changes
-    if file_changes['components']:
-        return next(iter(file_changes['components']))
-    # Check for module changes
-    elif file_changes['modules']:
-        return next(iter(file_changes['modules']))
-    # Check for common directory
-    elif file_changes['files']:
-        dirs = [os.path.dirname(f).split('/')[0] for f in file_changes['files']]
-        common_dirs = set(dirs)
-        if len(common_dirs) == 1:
-            return list(common_dirs)[0]
+    # Get all changed files
+    files = file_changes['files']
+    if not files:
+        return None
+        
+    # Get common directory prefix
+    dirs = [os.path.dirname(f).split('/')[0] for f in files]
+    common_dirs = set(dirs)
+    
+    # If all files are in the same directory, use that as scope
+    if len(common_dirs) == 1:
+        return list(common_dirs)[0]
+        
+    # If files are in different directories, try to find a common parent
+    if len(common_dirs) > 1:
+        # Get the shortest common prefix
+        prefix = os.path.commonprefix([f.split('/')[0] for f in files])
+        if prefix:
+            return prefix
+            
+    # If no common scope found, return None
     return None
 
 def analyze_file_content_changes(file_path: str, original_content: str, modified_content: str) -> Dict:
@@ -575,96 +385,98 @@ def analyze_file_content_changes(file_path: str, original_content: str, modified
     return changes
 
 def generate_detailed_commit_description(changes: Dict, file_changes: Dict) -> str:
-    """Generate a detailed commit description based on the changes."""
+    """Generate a detailed commit description based on comprehensive analysis."""
     desc_parts = []
     
-    # Handle setup.py specific changes
-    if 'setup.py' in file_changes['files']:
-        setup_changes = analyze_file_content_changes(
-            'setup.py',
-            file_changes.get('original_content', ''),
-            file_changes.get('modified_content', '')
-        )
-        
-        if setup_changes['metadata']:
-            desc_parts.append("update project metadata")
-        if setup_changes['dependencies']:
-            desc_parts.append("refine dependencies")
-        if setup_changes['entry_points']:
-            desc_parts.append("enhance entry points")
-        if setup_changes['descriptions']:
-            desc_parts.append("improve project descriptions")
-        if setup_changes['classifiers']:
-            desc_parts.append("update package classifiers")
-        if setup_changes['other']:
-            desc_parts.append("refine setup configuration")
+    # Handle file operations
+    if file_changes['added_files']:
+        files = sorted(file_changes['added_files'])
+        if len(files) == 1:
+            desc_parts.append(f"add new file {files[0]}")
+        else:
+            desc_parts.append(f"add new files: {', '.join(files)}")
     
-    # Handle other file changes
+    if file_changes['deleted_files']:
+        files = sorted(file_changes['deleted_files'])
+        if len(files) == 1:
+            desc_parts.append(f"remove file {files[0]}")
+        else:
+            desc_parts.append(f"remove files: {', '.join(files)}")
+    
+    if file_changes['renamed_files']:
+        renames = [f"{old} -> {new}" for old, new in sorted(file_changes['renamed_files'])]
+        desc_parts.append(f"rename files: {', '.join(renames)}")
+    
+    # Handle content changes
     if changes['security']:
         items = sorted(changes['security'])
-        if len(items) == 1:
-            desc_parts.append(f"fix security issue in {items[0]}")
-        else:
-            desc_parts.append(f"fix security issues in {', '.join(items)}")
+        desc_parts.append(f"enhance security in {', '.join(items)}")
     
     if changes['features']:
         items = sorted(changes['features'])
         if len(items) == 1:
-            desc_parts.append(f"add {items[0]}")
+            desc_parts.append(f"implement new feature in {items[0]}")
         else:
-            desc_parts.append(f"add features: {', '.join(items)}")
+            desc_parts.append(f"implement new features in {', '.join(items)}")
     
     if changes['fixes']:
         items = sorted(changes['fixes'])
         if len(items) == 1:
-            desc_parts.append(f"fix {items[0]}")
+            desc_parts.append(f"fix issue in {items[0]}")
         else:
-            desc_parts.append(f"fix issues: {', '.join(items)}")
+            desc_parts.append(f"fix issues in {', '.join(items)}")
     
     if changes['refactors']:
         items = sorted(changes['refactors'])
         if len(items) == 1:
-            desc_parts.append(f"refactor {items[0]}")
+            desc_parts.append(f"refactor code in {items[0]}")
         else:
-            desc_parts.append(f"refactor: {', '.join(items)}")
+            desc_parts.append(f"refactor code in {', '.join(items)}")
     
     if changes['performance']:
         items = sorted(changes['performance'])
         if len(items) == 1:
-            desc_parts.append(f"improve performance of {items[0]}")
+            desc_parts.append(f"optimize performance in {items[0]}")
         else:
-            desc_parts.append(f"improve performance: {', '.join(items)}")
+            desc_parts.append(f"optimize performance in {', '.join(items)}")
     
-    if changes['components']:
-        items = sorted(changes['components'])
+    if changes['tests']:
+        items = sorted(changes['tests'])
         if len(items) == 1:
-            desc_parts.append(f"update {items[0]} component")
+            desc_parts.append(f"update tests in {items[0]}")
         else:
-            desc_parts.append(f"update components: {', '.join(items)}")
+            desc_parts.append(f"update tests in {', '.join(items)}")
+    
+    if changes['docs']:
+        items = sorted(changes['docs'])
+        if len(items) == 1:
+            desc_parts.append(f"update documentation in {items[0]}")
+        else:
+            desc_parts.append(f"update documentation in {', '.join(items)}")
+    
+    if changes['config']:
+        items = sorted(changes['config'])
+        if len(items) == 1:
+            desc_parts.append(f"update configuration in {items[0]}")
+        else:
+            desc_parts.append(f"update configuration in {', '.join(items)}")
     
     if changes['dependencies']:
         items = sorted(changes['dependencies'])
         if len(items) == 1:
-            desc_parts.append(f"update {items[0]}")
+            desc_parts.append(f"update dependencies in {items[0]}")
         else:
-            desc_parts.append(f"update dependencies: {', '.join(items)}")
+            desc_parts.append(f"update dependencies in {', '.join(items)}")
     
-    if changes['scripts']:
-        items = sorted(changes['scripts'])
-        if len(items) == 1:
-            desc_parts.append(f"update {items[0]} script")
-        else:
-            desc_parts.append(f"update scripts: {', '.join(items)}")
-    
-    # If no specific changes detected, use file names
-    if not desc_parts and file_changes['files']:
-        files = [os.path.basename(f) for f in file_changes['files']]
-        desc_parts.append(f"modify {', '.join(files)}")
+    # Add code metrics summary if significant changes
+    metrics = changes['code_metrics']
+    if metrics['lines_added'] + metrics['lines_removed'] > 100:
+        desc_parts.append(f"({metrics['lines_added']}+/{metrics['lines_removed']}- lines)")
     
     return ' and '.join(desc_parts) or "update code"
 
 def analyze_changes(diff: str, original_content: Dict[str, str]) -> Optional[str]:
-    """Analyze the changes to generate a commit message."""
+    """Analyze the changes to generate a detailed commit message."""
     if not diff:
         return "No changes to commit"
     
@@ -673,16 +485,13 @@ def analyze_changes(diff: str, original_content: Dict[str, str]) -> Optional[str
         file_changes = analyze_file_changes(diff)
         code_changes = analyze_diff_changes(diff.split('\n'), original_content)
         
-        # Store original and modified content for detailed analysis
-        for file in file_changes['files']:
+        # Analyze code structure for modified files
+        for file in file_changes['modified_files']:
             if file in original_content:
-                file_changes['original_content'] = original_content[file]
-                # Get modified content from diff
-                modified_lines = []
-                for line in diff.split('\n'):
-                    if line.startswith('+') and not line.startswith('+++'):
-                        modified_lines.append(line[1:])
-                file_changes['modified_content'] = '\n'.join(modified_lines)
+                structure = analyze_code_structure(file, original_content[file])
+                # Use structure analysis to enhance change detection
+                if structure['functions']:
+                    code_changes['components'].add(file)
         
         # Generate commit parts
         commit_type = generate_commit_type(code_changes, file_changes)
@@ -695,30 +504,43 @@ def analyze_changes(diff: str, original_content: Dict[str, str]) -> Optional[str
             message += f"({commit_scope})"
         message += f": {commit_desc}"
         
-        # Show analysis details
-        console.print("\n[bold blue]Change Analysis:[/bold blue]")
-        if code_changes['security']:
-            console.print(f"[red]Security changes:[/red] {', '.join(code_changes['security'])}")
-        if code_changes['features']:
-            console.print(f"[green]Features added:[/green] {', '.join(code_changes['features'])}")
-        if code_changes['fixes']:
-            console.print(f"[yellow]Fixes:[/yellow] {', '.join(code_changes['fixes'])}")
-        if code_changes['refactors']:
-            console.print(f"[cyan]Refactors:[/cyan] {', '.join(code_changes['refactors'])}")
-        if code_changes['performance']:
-            console.print(f"[magenta]Performance improvements:[/magenta] {', '.join(code_changes['performance'])}")
-        if code_changes['components']:
-            console.print(f"[green]Components changed:[/green] {', '.join(code_changes['components'])}")
-        if code_changes['dependencies']:
-            console.print(f"[blue]Dependencies changed:[/blue] {', '.join(code_changes['dependencies'])}")
-        if code_changes['scripts']:
-            console.print(f"[yellow]Scripts changed:[/yellow] {', '.join(code_changes['scripts'])}")
+        # Show detailed analysis
+        console.print("\n[bold blue]Detailed Change Analysis:[/bold blue]")
         
-        # Show added/removed lines summary
-        if code_changes['added_lines'] or code_changes['removed_lines']:
-            console.print("\n[bold blue]Code Changes Summary:[/bold blue]")
-            console.print(f"[green]Lines added:[/green] {len(code_changes['added_lines'])}")
-            console.print(f"[red]Lines removed:[/red] {len(code_changes['removed_lines'])}")
+        # Show file operations
+        if file_changes['added_files'] or file_changes['deleted_files'] or file_changes['renamed_files']:
+            console.print("\n[bold]File Operations:[/bold]")
+            if file_changes['added_files']:
+                console.print(f"[green]Added:[/green] {', '.join(sorted(file_changes['added_files']))}")
+            if file_changes['deleted_files']:
+                console.print(f"[red]Deleted:[/red] {', '.join(sorted(file_changes['deleted_files']))}")
+            if file_changes['renamed_files']:
+                console.print(f"[yellow]Renamed:[/yellow] {', '.join(f'{old} -> {new}' for old, new in sorted(file_changes['renamed_files']))}")
+        
+        # Show content changes
+        console.print("\n[bold]Content Changes:[/bold]")
+        for category in ['security', 'features', 'fixes', 'refactors', 'performance', 
+                        'tests', 'docs', 'config', 'dependencies']:
+            if code_changes[category]:
+                color = {
+                    'security': 'red',
+                    'features': 'green',
+                    'fixes': 'yellow',
+                    'refactors': 'cyan',
+                    'performance': 'magenta',
+                    'tests': 'blue',
+                    'docs': 'white',
+                    'config': 'cyan',
+                    'dependencies': 'blue'
+                }[category]
+                console.print(f"[{color}]{category.title()}:[/{color}] {', '.join(sorted(code_changes[category]))}")
+        
+        # Show code metrics
+        metrics = code_changes['code_metrics']
+        console.print("\n[bold]Code Metrics:[/bold]")
+        console.print(f"[blue]Files changed:[/blue] {metrics['files_changed']}")
+        console.print(f"[green]Lines added:[/green] {metrics['lines_added']}")
+        console.print(f"[red]Lines removed:[/red] {metrics['lines_removed']}")
         
         return message
     except Exception as e:
