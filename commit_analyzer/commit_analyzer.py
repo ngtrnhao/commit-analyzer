@@ -463,38 +463,16 @@ def generate_detailed_commit_description(changes: Dict, file_changes: Dict, comm
     """Generate a detailed commit description based on comprehensive analysis and learned patterns."""
     desc_parts = []
     
-    # Group semantic changes by category
-    semantic_changes = defaultdict(list)
+    # Group changes by file
+    file_changes_map = defaultdict(list)
     for file, changes_list in changes['semantic_changes'].items():
+        # Get file name without path
+        file_name = os.path.basename(file)
         for change in changes_list:
-            # Extract the main action and category
-            action = change.split()[0]
-            if 'function' in change:
-                semantic_changes['functions'].append(change)
-            elif 'class' in change:
-                semantic_changes['classes'].append(change)
-            elif 'test' in change:
-                semantic_changes['tests'].append(change)
-            elif 'doc' in change or 'documentation' in change:
-                semantic_changes['docs'].append(change)
-            elif 'config' in change or 'settings' in change:
-                semantic_changes['config'].append(change)
-            elif 'security' in change:
-                semantic_changes['security'].append(change)
-            elif 'fix' in change or 'bug' in change:
-                semantic_changes['fixes'].append(change)
-            elif 'refactor' in change:
-                semantic_changes['refactors'].append(change)
-            elif 'performance' in change:
-                semantic_changes['performance'].append(change)
-            else:
-                semantic_changes['other'].append(change)
+            file_changes_map[file_name].append(change)
     
-    # Process each category of changes
-    for category, changes_list in semantic_changes.items():
-        if not changes_list:
-            continue
-            
+    # Process each file's changes
+    for file_name, changes_list in file_changes_map.items():
         # Remove duplicates and sort
         unique_changes = sorted(set(changes_list))
         
@@ -505,33 +483,33 @@ def generate_detailed_commit_description(changes: Dict, file_changes: Dict, comm
             grouped_changes[action].append(change)
         
         # Create description parts for each group
-        category_parts = []
+        file_parts = []
         for action, change_list in grouped_changes.items():
             if len(change_list) == 1:
-                category_parts.append(change_list[0])
+                file_parts.append(change_list[0])
             else:
                 # Find common prefix
                 common_prefix = os.path.commonprefix([c[len(action):] for c in change_list])
                 if common_prefix:
-                    category_parts.append(f"{action}{common_prefix} ({len(change_list)} changes)")
+                    file_parts.append(f"{action}{common_prefix} ({len(change_list)} changes)")
                 else:
-                    # Take first 3 changes and count the rest
-                    category_parts.append(f"{action} {', '.join(c[len(action):] for c in change_list[:3])}")
-                    if len(change_list) > 3:
-                        category_parts[-1] += f" and {len(change_list) - 3} more"
+                    # Take first 2 changes and count the rest
+                    file_parts.append(f"{action} {', '.join(c[len(action):] for c in change_list[:2])}")
+                    if len(change_list) > 2:
+                        file_parts[-1] += f" and {len(change_list) - 2} more"
         
-        # Add category description if there are changes
-        if category_parts:
-            desc_parts.append(f"{category}: {'; '.join(category_parts)}")
+        # Add file description if there are changes
+        if file_parts:
+            desc_parts.append(f"{file_name}: {'; '.join(file_parts)}")
     
     # Add file operations
     file_ops = []
     if file_changes['added_files']:
-        added_files = [os.path.basename(f) for f in file_changes['added_files']]
-        file_ops.append(f"add {', '.join(added_files)}")
+        added_count = len(file_changes['added_files'])
+        file_ops.append(f"add {added_count} file{'s' if added_count > 1 else ''}")
     if file_changes['deleted_files']:
-        deleted_files = [os.path.basename(f) for f in file_changes['deleted_files']]
-        file_ops.append(f"remove {', '.join(deleted_files)}")
+        deleted_count = len(file_changes['deleted_files'])
+        file_ops.append(f"remove {deleted_count} file{'s' if deleted_count > 1 else ''}")
     if file_changes['renamed_files']:
         renamed_files = [f"{os.path.basename(old)} → {os.path.basename(new)}" 
                         for old, new in file_changes['renamed_files']]
@@ -542,20 +520,8 @@ def generate_detailed_commit_description(changes: Dict, file_changes: Dict, comm
     
     # Add metrics if significant
     metrics = changes['code_metrics']
-    if metrics['lines_added'] + metrics['lines_removed'] > 0:
+    if metrics['lines_added'] + metrics['lines_removed'] > 50:  # Only show for significant changes
         desc_parts.append(f"({metrics['lines_added']}+/{metrics['lines_removed']}- lines)")
-    
-    # If we have learned patterns, try to match them
-    if commit_patterns['common_patterns'] and commit_patterns['descriptions']:
-        current_desc = ' '.join(desc_parts)
-        for pattern, count in sorted(commit_patterns['common_patterns'].items(), 
-                                   key=lambda x: x[1], reverse=True):
-            if pattern in current_desc.lower() and count > 2:
-                # Use the most common description that matches this pattern
-                for desc, desc_count in sorted(commit_patterns['descriptions'].items(),
-                                            key=lambda x: x[1], reverse=True):
-                    if pattern in desc.lower() and desc_count > 1:
-                        return desc
     
     # Join all parts with semicolons and format
     return '; '.join(desc_parts) or "update code"
