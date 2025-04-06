@@ -143,50 +143,40 @@ def analyze_package_json(file_path: str) -> Dict:
         return {}
 
 def analyze_code_structure(file_path: str, content: str) -> Dict:
-    """Analyze the structure and patterns in code files."""
-    analysis = {
-        'imports': set(),
-        'functions': set(),
-        'classes': set(),
-        'variables': set(),
-        'patterns': set()
-    }
-    
-    lines = content.split('\n')
-    for line in lines:
-        line = line.strip()
+    """Analyze the structure of a code file."""
+    try:
+        # Determine file type
+        file_ext = os.path.splitext(file_path)[1].lower()
         
-        # Analyze imports
-        if line.startswith('import ') or line.startswith('from '):
-            analysis['imports'].add(line)
-        
-        # Analyze function definitions
-        if line.startswith('def '):
-            func_name = line.split('def ')[1].split('(')[0].strip()
-            analysis['functions'].add(func_name)
-        
-        # Analyze class definitions
-        if line.startswith('class '):
-            class_name = line.split('class ')[1].split('(')[0].strip()
-            analysis['classes'].add(class_name)
-        
-        # Analyze variable assignments
-        if '=' in line and not line.startswith(('#', 'def ', 'class ')):
-            var_name = line.split('=')[0].strip()
-            if not var_name.startswith((' ', '\t')):
-                analysis['variables'].add(var_name)
-        
-        # Analyze common patterns
-        if 'if __name__ == "__main__":' in line:
-            analysis['patterns'].add('main block')
-        if '@' in line:
-            analysis['patterns'].add('decorator')
-        if 'try:' in line:
-            analysis['patterns'].add('try-except')
-        if 'with ' in line:
-            analysis['patterns'].add('context manager')
-    
-    return analysis
+        if file_ext == '.py':
+            return parse_python_file(file_path)
+        elif file_ext in ['.js', '.jsx', '.ts', '.tsx']:
+            return analyze_js_file(file_path)
+        elif file_ext == '.md':
+            return analyze_markdown_file(file_path)
+        elif file_ext in ['.json', '.yaml', '.yml']:
+            return analyze_config_file(file_path)
+        else:
+            return {
+                'functions': [],
+                'classes': [],
+                'imports': [],
+                'variables': [],
+                'methods': [],
+                'decorators': [],
+                'test_functions': []
+            }
+    except Exception as e:
+        console.print(f"[red]Error analyzing {file_path}: {str(e)}[/red]")
+        return {
+            'functions': [],
+            'classes': [],
+            'imports': [],
+            'variables': [],
+            'methods': [],
+            'decorators': [],
+            'test_functions': []
+        }
 
 def analyze_file_changes(diff: str) -> Dict:
     """Analyze changes in files with more detailed categorization."""
@@ -241,21 +231,22 @@ def analyze_file_changes(diff: str) -> Dict:
 def analyze_diff_changes(diff_lines: List[str], original_content: Dict[str, str]) -> Dict:
     """Analyze code changes with more detailed categorization."""
     changes = {
-        'security': set(),
-        'features': set(),
-        'fixes': set(),
-        'refactors': set(),
-        'performance': set(),
-        'components': set(),
-        'dependencies': set(),
-        'scripts': set(),
-        'tests': set(),
-        'docs': set(),
-        'config': set(),
-        'style': set(),
+        'security': [],
+        'features': [],
+        'fixes': [],
+        'refactors': [],
+        'performance': [],
+        'components': [],
+        'dependencies': [],
+        'scripts': [],
+        'tests': [],
+        'docs': [],
+        'config': [],
+        'style': [],
         'added_lines': [],
         'removed_lines': [],
-        'feature_details': defaultdict(list),  # Store detailed feature changes
+        'feature_details': defaultdict(list),
+        'semantic_changes': defaultdict(list),
         'code_metrics': {
             'lines_added': 0,
             'lines_removed': 0,
@@ -273,82 +264,101 @@ def analyze_diff_changes(diff_lines: List[str], original_content: Dict[str, str]
     current_file = None
     current_function = None
     current_class = None
+    context_lines = []
     
     for line in diff_lines:
         if line.startswith('diff --git'):
+            if current_file and context_lines:
+                analyze_context(changes, current_file, context_lines)
             current_file = line.split(' ')[2][2:]
             changes['code_metrics']['files_changed'] += 1
             current_function = None
             current_class = None
+            context_lines = []
         
         elif line.startswith('+') and not line.startswith('+++'):
             content = line[1:]
             changes['added_lines'].append(content)
             changes['code_metrics']['lines_added'] += 1
+            context_lines.append(('add', content))
             
             if current_file:
-                # Enhanced pattern detection with feature details
-                if any(keyword in content.lower() for keyword in ['password', 'secret', 'key', 'token', 'auth', 'login']):
-                    changes['security'].add(current_file)
-                    changes['feature_details'][current_file].append('enhance security')
-                
-                elif any(keyword in content.lower() for keyword in ['def ', 'class ', 'async def']):
-                    if 'def ' in content:
-                        changes['code_metrics']['functions_added'] += 1
-                        func_name = content.split('def ')[1].split('(')[0].strip()
-                        current_function = func_name
-                        changes['feature_details'][current_file].append(f'add {func_name} function')
-                    elif 'class ' in content:
-                        changes['code_metrics']['classes_added'] += 1
-                        class_name = content.split('class ')[1].split('(')[0].strip()
-                        current_class = class_name
-                        changes['feature_details'][current_file].append(f'add {class_name} class')
-                    changes['features'].add(current_file)
-                
-                elif any(keyword in content.lower() for keyword in ['children', 'array', 'list', 'default']):
-                    changes['features'].add(current_file)
-                    if 'children' in content.lower():
-                        changes['feature_details'][current_file].append('enhance children handling')
-                    if 'default' in content.lower():
-                        changes['feature_details'][current_file].append('add default values')
-                
-                elif any(keyword in content.lower() for keyword in ['fix', 'bug', 'error', 'exception', 'handle']):
-                    changes['fixes'].add(current_file)
-                    changes['feature_details'][current_file].append('fix issues')
-                
-                elif any(keyword in content.lower() for keyword in ['refactor', 'cleanup', 'optimize', 'improve']):
-                    changes['refactors'].add(current_file)
-                    changes['feature_details'][current_file].append('refactor code')
-                
-                elif any(keyword in content.lower() for keyword in ['performance', 'speed', 'efficient', 'fast']):
-                    changes['performance'].add(current_file)
-                    changes['feature_details'][current_file].append('improve performance')
-                
-                elif any(keyword in content.lower() for keyword in ['test_', 'assert', 'pytest', 'unittest']):
-                    changes['tests'].add(current_file)
-                    changes['feature_details'][current_file].append('add tests')
-                
-                elif any(keyword in content.lower() for keyword in ['"""', "'''", '#', 'docstring']):
-                    changes['docs'].add(current_file)
-                    changes['feature_details'][current_file].append('update documentation')
-                
-                elif any(keyword in content.lower() for keyword in ['config', 'settings', 'env']):
-                    changes['config'].add(current_file)
-                    changes['feature_details'][current_file].append('update configuration')
-                
-                elif any(keyword in content.lower() for keyword in ['import ', 'from ', 'require']):
-                    changes['dependencies'].add(current_file)
-                    changes['code_metrics']['imports_added'] += 1
-                    changes['feature_details'][current_file].append('add dependencies')
-                
-                elif '.bat' in current_file.lower() or '.sh' in current_file.lower():
-                    changes['scripts'].add(current_file)
-                    changes['feature_details'][current_file].append('add script')
+                analyze_line_content(changes, current_file, content, context_lines)
+        
+        elif line.startswith('-') and not line.startswith('---'):
+            content = line[1:]
+            changes['removed_lines'].append(content)
+            changes['code_metrics']['lines_removed'] += 1
+            context_lines.append(('remove', content))
+            
+            if current_file:
+                if 'def ' in content:
+                    changes['code_metrics']['functions_modified'] += 1
+                    func_name = content.split('def ')[1].split('(')[0].strip()
+                    changes['semantic_changes'][current_file].append(f'modify {func_name} function')
+                elif 'class ' in content:
+                    changes['code_metrics']['classes_modified'] += 1
+                    class_name = content.split('class ')[1].split('(')[0].strip()
+                    changes['semantic_changes'][current_file].append(f'modify {class_name} class')
+        else:
+            context_lines.append(('context', line))
+    
+    if current_file and context_lines:
+        analyze_context(changes, current_file, context_lines)
     
     return changes
 
-def generate_commit_type(changes: Dict, file_changes: Dict) -> str:
-    """Generate commit type based on changes."""
+def learn_from_github_commits(repo_path: str = '.') -> Dict:
+    """Learn patterns from existing commits in the repository."""
+    try:
+        repo = Repo(repo_path)
+        commit_patterns = {
+            'types': defaultdict(int),
+            'scopes': defaultdict(int),
+            'descriptions': defaultdict(int),
+            'common_patterns': defaultdict(int)
+        }
+        
+        # Analyze last 100 commits
+        for commit in list(repo.iter_commits())[:100]:
+            message = commit.message.strip()
+            if not message:
+                continue
+                
+            # Split commit message into parts
+            parts = message.split(':', 1)
+            if len(parts) == 2:
+                type_scope = parts[0].strip()
+                description = parts[1].strip()
+                
+                # Analyze type and scope
+                if '(' in type_scope:
+                    commit_type, scope = type_scope.split('(', 1)
+                    scope = scope.rstrip(')')
+                    commit_patterns['types'][commit_type.strip()] += 1
+                    commit_patterns['scopes'][scope.strip()] += 1
+                else:
+                    commit_patterns['types'][type_scope] += 1
+                
+                # Analyze description patterns
+                words = description.lower().split()
+                for i in range(len(words) - 1):
+                    pattern = f"{words[i]} {words[i+1]}"
+                    commit_patterns['common_patterns'][pattern] += 1
+                
+                # Store full descriptions
+                commit_patterns['descriptions'][description] += 1
+        
+        return commit_patterns
+    except Exception as e:
+        console.print(f"[red]Error learning from commits: {str(e)}[/red]")
+        return {}
+
+def generate_commit_type(changes: Dict, file_changes: Dict, commit_patterns: Dict) -> str:
+    """Generate commit type based on changes and learned patterns."""
+    # Get most common commit types from patterns
+    common_types = sorted(commit_patterns['types'].items(), key=lambda x: x[1], reverse=True)
+    
     if changes['security']:
         return '🔒 security'
     elif changes['fixes']:
@@ -369,10 +379,12 @@ def generate_commit_type(changes: Dict, file_changes: Dict) -> str:
         return '📦 deps'
     elif changes['scripts']:
         return '🔧 chore'
+    elif common_types:
+        return common_types[0][0]  # Use most common type
     return '🔧 chore'
 
-def generate_commit_scope(changes: Dict, file_changes: Dict) -> Optional[str]:
-    """Generate commit scope based on changes."""
+def generate_commit_scope(changes: Dict, file_changes: Dict, commit_patterns: Dict) -> Optional[str]:
+    """Generate commit scope based on changes and learned patterns."""
     # Get all changed files
     files = file_changes['files']
     if not files:
@@ -393,7 +405,11 @@ def generate_commit_scope(changes: Dict, file_changes: Dict) -> Optional[str]:
         if prefix:
             return prefix
             
-    # If no common scope found, return None
+    # Check learned patterns for scope
+    common_scopes = sorted(commit_patterns['scopes'].items(), key=lambda x: x[1], reverse=True)
+    if common_scopes:
+        return common_scopes[0][0]
+            
     return None
 
 def analyze_file_content_changes(file_path: str, original_content: str, modified_content: str) -> Dict:
@@ -434,65 +450,106 @@ def analyze_file_content_changes(file_path: str, original_content: str, modified
     
     return changes
 
-def generate_detailed_commit_description(changes: Dict, file_changes: Dict) -> str:
-    """Generate a detailed commit description based on comprehensive analysis."""
+def generate_detailed_commit_description(changes: Dict, file_changes: Dict, commit_patterns: Dict) -> str:
+    """Generate a detailed commit description based on comprehensive analysis and learned patterns."""
     desc_parts = []
-    feature_summary = []
     
-    # Group changes by type and collect feature details
-    script_changes = []
-    model_changes = []
-    config_changes = []
-    other_changes = []
-    
-    # Process added files first
-    if file_changes['added_files']:
-        for file in sorted(file_changes['added_files']):
-            base_name = os.path.basename(file)
-            if '.bat' in file.lower() or '.sh' in file.lower():
-                script_changes.append(f"add {base_name} script")
-            elif 'model' in file.lower() or 'schema' in file.lower():
-                model_changes.append(f"add {base_name} model")
-            elif 'config' in file.lower() or 'settings' in file.lower():
-                config_changes.append(f"add {base_name} configuration")
+    # Group semantic changes by category
+    semantic_changes = defaultdict(list)
+    for file, changes_list in changes['semantic_changes'].items():
+        for change in changes_list:
+            # Extract the main action and category
+            action = change.split()[0]
+            if 'function' in change:
+                semantic_changes['functions'].append(change)
+            elif 'class' in change:
+                semantic_changes['classes'].append(change)
+            elif 'test' in change:
+                semantic_changes['tests'].append(change)
+            elif 'doc' in change or 'documentation' in change:
+                semantic_changes['docs'].append(change)
+            elif 'config' in change or 'settings' in change:
+                semantic_changes['config'].append(change)
+            elif 'security' in change:
+                semantic_changes['security'].append(change)
+            elif 'fix' in change or 'bug' in change:
+                semantic_changes['fixes'].append(change)
+            elif 'refactor' in change:
+                semantic_changes['refactors'].append(change)
+            elif 'performance' in change:
+                semantic_changes['performance'].append(change)
             else:
-                other_changes.append(f"add {base_name}")
+                semantic_changes['other'].append(change)
     
-    # Process feature details
-    for file, details in changes['feature_details'].items():
-        base_name = os.path.basename(file)
-        if 'model' in file.lower() or 'schema' in file.lower():
-            # Combine related model changes
-            unique_details = list(set(details))
-            if unique_details:
-                model_changes.append(f"enhance {base_name} with {', '.join(unique_details)}")
-        elif '.bat' in file.lower() or '.sh' in file.lower():
-            script_changes.extend(details)
-        elif 'config' in file.lower() or 'settings' in file.lower():
-            config_changes.extend(details)
-        else:
-            other_changes.extend(details)
+    # Process each category of changes
+    for category, changes_list in semantic_changes.items():
+        if not changes_list:
+            continue
+            
+        # Remove duplicates and sort
+        unique_changes = sorted(set(changes_list))
+        
+        # Group similar changes
+        grouped_changes = defaultdict(list)
+        for change in unique_changes:
+            action = change.split()[0]
+            grouped_changes[action].append(change)
+        
+        # Create description parts for each group
+        category_parts = []
+        for action, change_list in grouped_changes.items():
+            if len(change_list) == 1:
+                category_parts.append(change_list[0])
+            else:
+                # Find common prefix
+                common_prefix = os.path.commonprefix([c[len(action):] for c in change_list])
+                if common_prefix:
+                    category_parts.append(f"{action}{common_prefix} ({len(change_list)} changes)")
+                else:
+                    # Take first 3 changes and count the rest
+                    category_parts.append(f"{action} {', '.join(c[len(action):] for c in change_list[:3])}")
+                    if len(change_list) > 3:
+                        category_parts[-1] += f" and {len(change_list) - 3} more"
+        
+        # Add category description if there are changes
+        if category_parts:
+            desc_parts.append(f"{category}: {'; '.join(category_parts)}")
     
-    # Combine changes into meaningful groups
-    if script_changes:
-        feature_summary.append('; '.join(sorted(set(script_changes))))
-    if model_changes:
-        feature_summary.append('; '.join(sorted(set(model_changes))))
-    if config_changes:
-        feature_summary.append('; '.join(sorted(set(config_changes))))
-    if other_changes:
-        feature_summary.append('; '.join(sorted(set(other_changes))))
+    # Add file operations
+    file_ops = []
+    if file_changes['added_files']:
+        added_files = [os.path.basename(f) for f in file_changes['added_files']]
+        file_ops.append(f"add {', '.join(added_files)}")
+    if file_changes['deleted_files']:
+        deleted_files = [os.path.basename(f) for f in file_changes['deleted_files']]
+        file_ops.append(f"remove {', '.join(deleted_files)}")
+    if file_changes['renamed_files']:
+        renamed_files = [f"{os.path.basename(old)} → {os.path.basename(new)}" 
+                        for old, new in file_changes['renamed_files']]
+        file_ops.append(f"rename {', '.join(renamed_files)}")
     
-    # Create the main description
-    if feature_summary:
-        desc_parts.append(' and '.join(feature_summary))
+    if file_ops:
+        desc_parts.append(f"files: {'; '.join(file_ops)}")
     
     # Add metrics if significant
     metrics = changes['code_metrics']
     if metrics['lines_added'] + metrics['lines_removed'] > 0:
         desc_parts.append(f"({metrics['lines_added']}+/{metrics['lines_removed']}- lines)")
     
-    return ' '.join(desc_parts) or "update code"
+    # If we have learned patterns, try to match them
+    if commit_patterns['common_patterns'] and commit_patterns['descriptions']:
+        current_desc = ' '.join(desc_parts)
+        for pattern, count in sorted(commit_patterns['common_patterns'].items(), 
+                                   key=lambda x: x[1], reverse=True):
+            if pattern in current_desc.lower() and count > 2:
+                # Use the most common description that matches this pattern
+                for desc, desc_count in sorted(commit_patterns['descriptions'].items(),
+                                            key=lambda x: x[1], reverse=True):
+                    if pattern in desc.lower() and desc_count > 1:
+                        return desc
+    
+    # Join all parts with semicolons and format
+    return '; '.join(desc_parts) or "update code"
 
 def analyze_changes(diff: str, original_content: Dict[str, str]) -> Optional[str]:
     """Analyze the changes to generate a detailed commit message."""
@@ -500,6 +557,9 @@ def analyze_changes(diff: str, original_content: Dict[str, str]) -> Optional[str
         return "No changes to commit"
     
     try:
+        # Learn from existing commits
+        commit_patterns = learn_from_github_commits()
+        
         # Analyze file and code changes
         file_changes = analyze_file_changes(diff)
         code_changes = analyze_diff_changes(diff.split('\n'), original_content)
@@ -510,18 +570,12 @@ def analyze_changes(diff: str, original_content: Dict[str, str]) -> Optional[str
                 structure = analyze_code_structure(file, original_content[file])
                 # Use structure analysis to enhance change detection
                 if structure['functions']:
-                    code_changes['components'].add(file)
+                    code_changes['components'].append(file)
         
-        # Generate commit parts
-        commit_type = generate_commit_type(code_changes, file_changes)
-        commit_scope = generate_commit_scope(code_changes, file_changes)
-        commit_desc = generate_detailed_commit_description(code_changes, file_changes)
-        
-        # Construct commit message
-        message = commit_type
-        if commit_scope:
-            message += f"({commit_scope})"
-        message += f": {commit_desc}"
+        # Generate commit parts using learned patterns
+        commit_type = generate_commit_type(code_changes, file_changes, commit_patterns)
+        commit_scope = generate_commit_scope(code_changes, file_changes, commit_patterns)
+        commit_desc = generate_detailed_commit_description(code_changes, file_changes, commit_patterns)
         
         # Show detailed analysis with enhanced styling
         console.print("\n[bold cyan]📊 Change Analysis Report[/bold cyan]")
@@ -588,6 +642,37 @@ def analyze_changes(diff: str, original_content: Dict[str, str]) -> Optional[str
         if metrics['imports_removed'] > 0:
             console.print(f"🗑️ [red]Imports removed:[/red] {metrics['imports_removed']}")
         
+        # Show semantic changes
+        if code_changes['semantic_changes']:
+            console.print("\n[bold]🔍 Semantic Changes[/bold]")
+            console.print("[bold cyan]-" * 30 + "[/bold cyan]")
+            for file, changes in code_changes['semantic_changes'].items():
+                console.print(f"📄 [cyan]{file}:[/cyan]")
+                for change in sorted(set(changes)):
+                    console.print(f"  • {change}")
+        
+        # Show learned patterns
+        if commit_patterns['types'] or commit_patterns['scopes'] or commit_patterns['common_patterns']:
+            console.print("\n[bold]📚 Learned Patterns[/bold]")
+            console.print("[bold cyan]-" * 30 + "[/bold cyan]")
+            if commit_patterns['types']:
+                console.print(f"📝 Common types: {', '.join(sorted(commit_patterns['types'].keys()))}")
+            if commit_patterns['scopes']:
+                console.print(f"🎯 Common scopes: {', '.join(sorted(commit_patterns['scopes'].keys()))}")
+            if commit_patterns['common_patterns']:
+                console.print(f"🔍 Common patterns: {', '.join(sorted(commit_patterns['common_patterns'].keys())[:5])}...")
+        
+        # Construct commit message with enhanced formatting
+        message = f"{commit_type}"
+        if commit_scope:
+            message += f"({commit_scope})"
+        message += f": {commit_desc}"
+        
+        # Add detailed metrics
+        metrics = code_changes['code_metrics']
+        if metrics['lines_added'] + metrics['lines_removed'] > 0:
+            message += f" ({metrics['lines_added']}+/{metrics['lines_removed']}- lines)"
+        
         # Show suggested commit message with enhanced styling
         console.print("\n[bold]💡 Suggested Commit Message[/bold]")
         console.print("[bold cyan]-" * 30 + "[/bold cyan]")
@@ -598,6 +683,192 @@ def analyze_changes(diff: str, original_content: Dict[str, str]) -> Optional[str
     except Exception as e:
         console.print(f"[red]❌ Error generating commit message: {str(e)}[/red]")
         return None
+
+def analyze_line_content(changes: Dict, file: str, content: str, context: List[Tuple[str, str]]):
+    """Analyze a single line's content with context awareness."""
+    # Function changes
+    if 'def ' in content:
+        func_name = content.split('def ')[1].split('(')[0].strip()
+        changes['features'].append(file)
+        
+        # Analyze function purpose
+        if 'analyze_' in func_name:
+            changes['semantic_changes'][file].append(f'add code analysis for {func_name.replace("analyze_", "")}')
+        elif 'generate_' in func_name:
+            changes['semantic_changes'][file].append(f'add generator for {func_name.replace("generate_", "")}')
+        elif 'parse_' in func_name:
+            changes['semantic_changes'][file].append(f'add parser for {func_name.replace("parse_", "")}')
+        else:
+            changes['semantic_changes'][file].append(f'add {func_name} function')
+    
+    # Class changes
+    elif 'class ' in content:
+        class_name = content.split('class ')[1].split('(')[0].strip()
+        changes['features'].append(file)
+        changes['semantic_changes'][file].append(f'add {class_name} class')
+    
+    # Style and formatting
+    elif any(keyword in content for keyword in ['console.print', 'bold', 'color', 'style']):
+        changes['style'].append(file)
+        if '[bold]' in content or '[/bold]' in content:
+            changes['semantic_changes'][file].append('enhance text formatting')
+        if any(color in content for color in ['green', 'red', 'cyan', 'yellow', 'blue']):
+            changes['semantic_changes'][file].append('improve color styling')
+        if 'icon' in content.lower():
+            changes['semantic_changes'][file].append('add emoji icons')
+    
+    # Logic changes
+    elif any(keyword in content for keyword in ['if', 'else', 'elif', 'for', 'while', 'try', 'except']):
+        changes['features'].append(file)
+        if 'try' in content:
+            changes['semantic_changes'][file].append('enhance error handling')
+        elif 'if' in content:
+            changes['semantic_changes'][file].append('improve conditional logic')
+        elif 'for' in content or 'while' in content:
+            changes['semantic_changes'][file].append('enhance data processing')
+    
+    # Data structure changes
+    elif any(keyword in content for keyword in ['dict', 'list', 'set', 'defaultdict']):
+        changes['features'].append(file)
+        if 'defaultdict' in content:
+            changes['semantic_changes'][file].append('optimize data collection')
+        else:
+            changes['semantic_changes'][file].append('improve data structures')
+    
+    # Security changes
+    elif any(keyword in content.lower() for keyword in ['password', 'secret', 'key', 'token', 'auth', 'login']):
+        changes['security'].append(file)
+        changes['semantic_changes'][file].append('enhance security')
+    
+    # Test changes
+    elif any(keyword in content.lower() for keyword in ['test_', 'assert', 'pytest', 'unittest']):
+        changes['tests'].append(file)
+        changes['semantic_changes'][file].append('add tests')
+    
+    # Documentation changes
+    elif any(keyword in content.lower() for keyword in ['"""', "'''", '#', 'docstring']):
+        changes['docs'].append(file)
+        changes['semantic_changes'][file].append('update documentation')
+    
+    # Configuration changes
+    elif any(keyword in content.lower() for keyword in ['config', 'settings', 'env']):
+        changes['config'].append(file)
+        changes['semantic_changes'][file].append('update configuration')
+    
+    # Dependency changes
+    elif any(keyword in content.lower() for keyword in ['import ', 'from ', 'require']):
+        changes['dependencies'].append(file)
+        changes['code_metrics']['imports_added'] += 1
+        changes['semantic_changes'][file].append('add dependencies')
+    
+    # Script changes
+    elif '.bat' in file.lower() or '.sh' in file.lower():
+        changes['scripts'].append(file)
+        changes['semantic_changes'][file].append('add script')
+    
+    # Fix changes
+    elif any(keyword in content.lower() for keyword in ['fix', 'bug', 'error', 'exception', 'handle']):
+        changes['fixes'].append(file)
+        changes['semantic_changes'][file].append('fix issues')
+    
+    # Refactor changes
+    elif any(keyword in content.lower() for keyword in ['refactor', 'cleanup', 'optimize', 'improve']):
+        changes['refactors'].append(file)
+        changes['semantic_changes'][file].append('refactor code')
+    
+    # Performance changes
+    elif any(keyword in content.lower() for keyword in ['performance', 'speed', 'efficient', 'fast']):
+        changes['performance'].append(file)
+        changes['semantic_changes'][file].append('improve performance')
+
+def analyze_context(changes: Dict, file: str, context_lines: List[Tuple[str, str]]):
+    """Analyze the context of changes to understand the broader impact."""
+    if not context_lines:
+        return
+        
+    # Group changes by their type (add/remove/context)
+    added_lines = [line for type_, line in context_lines if type_ == 'add']
+    removed_lines = [line for type_, line in context_lines if type_ == 'remove']
+    context_lines = [line for type_, line in context_lines if type_ == 'context']
+    
+    # Analyze function context
+    for i, line in enumerate(context_lines):
+        if 'def ' in line:
+            func_name = line.split('def ')[1].split('(')[0].strip()
+            # Look at surrounding lines to understand function purpose
+            surrounding_lines = context_lines[max(0, i-2):min(len(context_lines), i+3)]
+            if any('test' in l.lower() for l in surrounding_lines):
+                changes['tests'].append(file)
+                changes['semantic_changes'][file].append(f'add test for {func_name}')
+            elif any('doc' in l.lower() or '"""' in l for l in surrounding_lines):
+                changes['docs'].append(file)
+                changes['semantic_changes'][file].append(f'add documentation for {func_name}')
+            else:
+                changes['features'].append(file)
+                changes['semantic_changes'][file].append(f'add {func_name} function')
+    
+    # Analyze class context
+    for i, line in enumerate(context_lines):
+        if 'class ' in line:
+            class_name = line.split('class ')[1].split('(')[0].strip()
+            # Look at surrounding lines to understand class purpose
+            surrounding_lines = context_lines[max(0, i-2):min(len(context_lines), i+3)]
+            if any('test' in l.lower() for l in surrounding_lines):
+                changes['tests'].append(file)
+                changes['semantic_changes'][file].append(f'add test class {class_name}')
+            elif any('model' in l.lower() or 'schema' in l.lower() for l in surrounding_lines):
+                changes['components'].append(file)
+                changes['semantic_changes'][file].append(f'add {class_name} model')
+            else:
+                changes['features'].append(file)
+                changes['semantic_changes'][file].append(f'add {class_name} class')
+    
+    # Analyze configuration context
+    for i, line in enumerate(context_lines):
+        if any(keyword in line.lower() for keyword in ['config', 'settings', 'env']):
+            surrounding_lines = context_lines[max(0, i-2):min(len(context_lines), i+3)]
+            if any('test' in l.lower() for l in surrounding_lines):
+                changes['tests'].append(file)
+                changes['semantic_changes'][file].append('add test configuration')
+            elif any('security' in l.lower() or 'auth' in l.lower() for l in surrounding_lines):
+                changes['security'].append(file)
+                changes['semantic_changes'][file].append('add security configuration')
+            else:
+                changes['config'].append(file)
+                changes['semantic_changes'][file].append('add configuration')
+    
+    # Analyze dependency context
+    for i, line in enumerate(context_lines):
+        if any(keyword in line.lower() for keyword in ['import ', 'from ', 'require']):
+            surrounding_lines = context_lines[max(0, i-2):min(len(context_lines), i+3)]
+            if any('test' in l.lower() for l in surrounding_lines):
+                changes['tests'].append(file)
+                changes['semantic_changes'][file].append('add test dependencies')
+            else:
+                changes['dependencies'].append(file)
+                changes['semantic_changes'][file].append('add dependencies')
+    
+    # Analyze test context
+    for i, line in enumerate(context_lines):
+        if any(keyword in line.lower() for keyword in ['test_', 'assert', 'pytest', 'unittest']):
+            surrounding_lines = context_lines[max(0, i-2):min(len(context_lines), i+3)]
+            if any('mock' in l.lower() or 'patch' in l.lower() for l in surrounding_lines):
+                changes['tests'].append(file)
+                changes['semantic_changes'][file].append('add mock tests')
+            else:
+                changes['tests'].append(file)
+                changes['semantic_changes'][file].append('add tests')
+    
+    # Analyze documentation context
+    for i, line in enumerate(context_lines):
+        if any(keyword in line.lower() for keyword in ['"""', "'''", '#', 'docstring']):
+            surrounding_lines = context_lines[max(0, i-2):min(len(context_lines), i+3)]
+            if any('api' in l.lower() or 'endpoint' in l.lower() for l in surrounding_lines):
+                changes['docs'].append(file)
+                changes['semantic_changes'][file].append('add API documentation')
+            else:
+                changes['docs'].append(file)
+                changes['semantic_changes'][file].append('add documentation')
 
 def main():
     try:
