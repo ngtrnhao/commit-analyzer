@@ -203,7 +203,11 @@ def analyze_file_changes(diff: str) -> Dict:
     current_file = None
     for line in diff.split('\n'):
         if line.startswith('diff --git'):
-            current_file = line.split(' ')[2][2:]  # Remove 'a/' prefix
+            parts = line.split()
+            # Extract both a/ and b/ paths
+            a_path = parts[2][2:]  # Remove 'a/' prefix
+            b_path = parts[3][2:]  # Remove 'b/' prefix
+            current_file = b_path  # Use the new path as current
             changes['files'].add(current_file)
             file_ext = os.path.splitext(current_file)[1]
             changes['file_types'][file_ext].add(current_file)
@@ -213,12 +217,12 @@ def analyze_file_changes(diff: str) -> Dict:
         
         elif line.startswith('deleted file mode'):
             changes['deleted_files'].add(current_file)
-            changes['files'].remove(current_file)
         
         elif line.startswith('rename from'):
             old_file = line.split(' ')[2]
-            changes['renamed_files'].add((old_file, current_file))
-            changes['files'].remove(old_file)
+            next_line = next(line for line in diff.split('\n') if line.startswith('rename to'))
+            new_file = next_line.split(' ')[2]
+            changes['renamed_files'].add((old_file, new_file))
         
         elif line.startswith('+') and not line.startswith('+++'):
             if current_file:
@@ -228,8 +232,9 @@ def analyze_file_changes(diff: str) -> Dict:
             if current_file:
                 changes['content_changes'][current_file]['removed'].append(line[1:])
     
-    # Determine modified files
-    changes['modified_files'] = changes['files'] - changes['added_files'] - {f[1] for f in changes['renamed_files']}
+    # Determine modified files (files that are not added, deleted, or renamed)
+    all_renamed = {old for old, new in changes['renamed_files']} | {new for old, new in changes['renamed_files']}
+    changes['modified_files'] = changes['files'] - changes['added_files'] - changes['deleted_files'] - all_renamed
     
     return changes
 
@@ -250,19 +255,31 @@ def analyze_diff_changes(diff_lines: List[str], original_content: Dict[str, str]
         'style': set(),
         'added_lines': [],
         'removed_lines': [],
+        'feature_details': defaultdict(list),  # Store detailed feature changes
         'code_metrics': {
             'lines_added': 0,
             'lines_removed': 0,
             'files_changed': 0,
-            'complexity_changes': 0
+            'complexity_changes': 0,
+            'functions_added': 0,
+            'functions_modified': 0,
+            'classes_added': 0,
+            'classes_modified': 0,
+            'imports_added': 0,
+            'imports_removed': 0
         }
     }
     
     current_file = None
+    current_function = None
+    current_class = None
+    
     for line in diff_lines:
         if line.startswith('diff --git'):
             current_file = line.split(' ')[2][2:]
             changes['code_metrics']['files_changed'] += 1
+            current_function = None
+            current_class = None
         
         elif line.startswith('+') and not line.startswith('+++'):
             content = line[1:]
@@ -270,56 +287,89 @@ def analyze_diff_changes(diff_lines: List[str], original_content: Dict[str, str]
             changes['code_metrics']['lines_added'] += 1
             
             if current_file:
-                # Enhanced pattern detection
-                if any(keyword in content.lower() for keyword in ['password', 'secret', 'key', 'token']):
+                # Enhanced pattern detection with feature details
+                if any(keyword in content.lower() for keyword in ['password', 'secret', 'key', 'token', 'auth', 'login']):
                     changes['security'].add(current_file)
+                    changes['feature_details'][current_file].append('enhance security')
+                
                 elif any(keyword in content.lower() for keyword in ['def ', 'class ', 'async def']):
+                    if 'def ' in content:
+                        changes['code_metrics']['functions_added'] += 1
+                        func_name = content.split('def ')[1].split('(')[0].strip()
+                        current_function = func_name
+                        changes['feature_details'][current_file].append(f'add {func_name} function')
+                    elif 'class ' in content:
+                        changes['code_metrics']['classes_added'] += 1
+                        class_name = content.split('class ')[1].split('(')[0].strip()
+                        current_class = class_name
+                        changes['feature_details'][current_file].append(f'add {class_name} class')
                     changes['features'].add(current_file)
-                elif any(keyword in content.lower() for keyword in ['fix', 'bug', 'error', 'exception']):
+                
+                elif any(keyword in content.lower() for keyword in ['children', 'array', 'list', 'default']):
+                    changes['features'].add(current_file)
+                    if 'children' in content.lower():
+                        changes['feature_details'][current_file].append('enhance children handling')
+                    if 'default' in content.lower():
+                        changes['feature_details'][current_file].append('add default values')
+                
+                elif any(keyword in content.lower() for keyword in ['fix', 'bug', 'error', 'exception', 'handle']):
                     changes['fixes'].add(current_file)
-                elif any(keyword in content.lower() for keyword in ['refactor', 'cleanup', 'optimize']):
+                    changes['feature_details'][current_file].append('fix issues')
+                
+                elif any(keyword in content.lower() for keyword in ['refactor', 'cleanup', 'optimize', 'improve']):
                     changes['refactors'].add(current_file)
-                elif any(keyword in content.lower() for keyword in ['performance', 'speed', 'efficient']):
+                    changes['feature_details'][current_file].append('refactor code')
+                
+                elif any(keyword in content.lower() for keyword in ['performance', 'speed', 'efficient', 'fast']):
                     changes['performance'].add(current_file)
-                elif any(keyword in content.lower() for keyword in ['test_', 'assert', 'pytest']):
+                    changes['feature_details'][current_file].append('improve performance')
+                
+                elif any(keyword in content.lower() for keyword in ['test_', 'assert', 'pytest', 'unittest']):
                     changes['tests'].add(current_file)
-                elif any(keyword in content.lower() for keyword in ['"""', "'''", '#']):
+                    changes['feature_details'][current_file].append('add tests')
+                
+                elif any(keyword in content.lower() for keyword in ['"""', "'''", '#', 'docstring']):
                     changes['docs'].add(current_file)
+                    changes['feature_details'][current_file].append('update documentation')
+                
                 elif any(keyword in content.lower() for keyword in ['config', 'settings', 'env']):
                     changes['config'].add(current_file)
+                    changes['feature_details'][current_file].append('update configuration')
+                
                 elif any(keyword in content.lower() for keyword in ['import ', 'from ', 'require']):
                     changes['dependencies'].add(current_file)
-        
-        elif line.startswith('-') and not line.startswith('---'):
-            content = line[1:]
-            changes['removed_lines'].append(content)
-            changes['code_metrics']['lines_removed'] += 1
+                    changes['code_metrics']['imports_added'] += 1
+                    changes['feature_details'][current_file].append('add dependencies')
+                
+                elif '.bat' in current_file.lower() or '.sh' in current_file.lower():
+                    changes['scripts'].add(current_file)
+                    changes['feature_details'][current_file].append('add script')
     
     return changes
 
 def generate_commit_type(changes: Dict, file_changes: Dict) -> str:
     """Generate commit type based on changes."""
     if changes['security']:
-        return 'security'
+        return '🔒 security'
     elif changes['fixes']:
-        return 'fix'
+        return '🐛 fix'
     elif changes['features']:
-        return 'feat'
+        return '✨ feat'
     elif changes['refactors']:
-        return 'refactor'
+        return '🔄 refactor'
     elif changes['performance']:
-        return 'perf'
+        return '⚡ perf'
     elif changes['docs']:
-        return 'docs'
+        return '📚 docs'
     elif changes['tests']:
-        return 'test'
+        return '🧪 test'
     elif changes['style']:
-        return 'style'
+        return '💅 style'
     elif changes['dependencies']:
-        return 'deps'
+        return '📦 deps'
     elif changes['scripts']:
-        return 'chore'
-    return 'chore'
+        return '🔧 chore'
+    return '🔧 chore'
 
 def generate_commit_scope(changes: Dict, file_changes: Dict) -> Optional[str]:
     """Generate commit scope based on changes."""
@@ -387,60 +437,62 @@ def analyze_file_content_changes(file_path: str, original_content: str, modified
 def generate_detailed_commit_description(changes: Dict, file_changes: Dict) -> str:
     """Generate a detailed commit description based on comprehensive analysis."""
     desc_parts = []
+    feature_summary = []
     
-    # Group changes by file
-    file_changes_map = defaultdict(list)
+    # Group changes by type and collect feature details
+    script_changes = []
+    model_changes = []
+    config_changes = []
+    other_changes = []
     
-    # Handle file operations first
+    # Process added files first
     if file_changes['added_files']:
-        files = sorted(file_changes['added_files'])
-        if len(files) == 1:
-            desc_parts.append(f"add {files[0]}")
+        for file in sorted(file_changes['added_files']):
+            base_name = os.path.basename(file)
+            if '.bat' in file.lower() or '.sh' in file.lower():
+                script_changes.append(f"add {base_name} script")
+            elif 'model' in file.lower() or 'schema' in file.lower():
+                model_changes.append(f"add {base_name} model")
+            elif 'config' in file.lower() or 'settings' in file.lower():
+                config_changes.append(f"add {base_name} configuration")
+            else:
+                other_changes.append(f"add {base_name}")
+    
+    # Process feature details
+    for file, details in changes['feature_details'].items():
+        base_name = os.path.basename(file)
+        if 'model' in file.lower() or 'schema' in file.lower():
+            # Combine related model changes
+            unique_details = list(set(details))
+            if unique_details:
+                model_changes.append(f"enhance {base_name} with {', '.join(unique_details)}")
+        elif '.bat' in file.lower() or '.sh' in file.lower():
+            script_changes.extend(details)
+        elif 'config' in file.lower() or 'settings' in file.lower():
+            config_changes.extend(details)
         else:
-            desc_parts.append(f"add {len(files)} files")
+            other_changes.extend(details)
     
-    if file_changes['deleted_files']:
-        files = sorted(file_changes['deleted_files'])
-        if len(files) == 1:
-            desc_parts.append(f"remove {files[0]}")
-        else:
-            desc_parts.append(f"remove {len(files)} files")
+    # Combine changes into meaningful groups
+    if script_changes:
+        feature_summary.append('; '.join(sorted(set(script_changes))))
+    if model_changes:
+        feature_summary.append('; '.join(sorted(set(model_changes))))
+    if config_changes:
+        feature_summary.append('; '.join(sorted(set(config_changes))))
+    if other_changes:
+        feature_summary.append('; '.join(sorted(set(other_changes))))
     
-    if file_changes['renamed_files']:
-        renames = [f"{old} → {new}" for old, new in sorted(file_changes['renamed_files'])]
-        desc_parts.append(f"rename {len(renames)} files")
+    # Create the main description
+    if feature_summary:
+        desc_parts.append(' and '.join(feature_summary))
     
-    # Group content changes by file
-    for category in ['security', 'features', 'fixes', 'refactors', 'performance', 
-                    'tests', 'docs', 'config', 'dependencies']:
-        for file in changes[category]:
-            file_changes_map[file].append(category)
-    
-    # Generate concise descriptions for each file
-    for file, categories in sorted(file_changes_map.items()):
-        # Prioritize changes
-        if 'security' in categories:
-            desc_parts.append(f"enhance security in {os.path.basename(file)}")
-        elif 'fixes' in categories:
-            desc_parts.append(f"fix issues in {os.path.basename(file)}")
-        elif 'features' in categories:
-            desc_parts.append(f"add features in {os.path.basename(file)}")
-        elif 'refactors' in categories:
-            desc_parts.append(f"refactor {os.path.basename(file)}")
-        elif 'performance' in categories:
-            desc_parts.append(f"optimize {os.path.basename(file)}")
-        else:
-            # Combine remaining changes
-            changes_str = ', '.join(categories)
-            desc_parts.append(f"update {os.path.basename(file)} ({changes_str})")
-    
-    # Add code metrics summary if significant changes
+    # Add metrics if significant
     metrics = changes['code_metrics']
-    if metrics['lines_added'] + metrics['lines_removed'] > 100:
+    if metrics['lines_added'] + metrics['lines_removed'] > 0:
         desc_parts.append(f"({metrics['lines_added']}+/{metrics['lines_removed']}- lines)")
     
-    # Join descriptions with semicolons for better readability
-    return '; '.join(desc_parts) or "update code"
+    return ' '.join(desc_parts) or "update code"
 
 def analyze_changes(diff: str, original_content: Dict[str, str]) -> Optional[str]:
     """Analyze the changes to generate a detailed commit message."""
@@ -516,13 +568,25 @@ def analyze_changes(diff: str, original_content: Dict[str, str]) -> Optional[str
                 }[category]
                 console.print(f"{icon} [{color}]{category.title()}:[/{color}] {', '.join(sorted(code_changes[category]))}")
         
-        # Show code metrics with icons
+        # Show detailed code metrics with icons
         metrics = code_changes['code_metrics']
         console.print("\n[bold]📈 Code Metrics[/bold]")
         console.print("[bold cyan]-" * 30 + "[/bold cyan]")
         console.print(f"📂 [blue]Files changed:[/blue] {metrics['files_changed']}")
         console.print(f"➕ [green]Lines added:[/green] {metrics['lines_added']}")
         console.print(f"➖ [red]Lines removed:[/red] {metrics['lines_removed']}")
+        if metrics['functions_added'] > 0:
+            console.print(f"➕ [green]Functions added:[/green] {metrics['functions_added']}")
+        if metrics['functions_modified'] > 0:
+            console.print(f"✏️ [yellow]Functions modified:[/yellow] {metrics['functions_modified']}")
+        if metrics['classes_added'] > 0:
+            console.print(f"➕ [green]Classes added:[/green] {metrics['classes_added']}")
+        if metrics['classes_modified'] > 0:
+            console.print(f"✏️ [yellow]Classes modified:[/yellow] {metrics['classes_modified']}")
+        if metrics['imports_added'] > 0:
+            console.print(f"📦 [blue]Imports added:[/blue] {metrics['imports_added']}")
+        if metrics['imports_removed'] > 0:
+            console.print(f"🗑️ [red]Imports removed:[/red] {metrics['imports_removed']}")
         
         # Show suggested commit message with enhanced styling
         console.print("\n[bold]💡 Suggested Commit Message[/bold]")
