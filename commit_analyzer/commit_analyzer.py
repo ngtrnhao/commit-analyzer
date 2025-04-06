@@ -388,92 +388,59 @@ def generate_detailed_commit_description(changes: Dict, file_changes: Dict) -> s
     """Generate a detailed commit description based on comprehensive analysis."""
     desc_parts = []
     
-    # Handle file operations
+    # Group changes by file
+    file_changes_map = defaultdict(list)
+    
+    # Handle file operations first
     if file_changes['added_files']:
         files = sorted(file_changes['added_files'])
         if len(files) == 1:
-            desc_parts.append(f"add new file {files[0]}")
+            desc_parts.append(f"add {files[0]}")
         else:
-            desc_parts.append(f"add new files: {', '.join(files)}")
+            desc_parts.append(f"add {len(files)} files")
     
     if file_changes['deleted_files']:
         files = sorted(file_changes['deleted_files'])
         if len(files) == 1:
-            desc_parts.append(f"remove file {files[0]}")
+            desc_parts.append(f"remove {files[0]}")
         else:
-            desc_parts.append(f"remove files: {', '.join(files)}")
+            desc_parts.append(f"remove {len(files)} files")
     
     if file_changes['renamed_files']:
-        renames = [f"{old} -> {new}" for old, new in sorted(file_changes['renamed_files'])]
-        desc_parts.append(f"rename files: {', '.join(renames)}")
+        renames = [f"{old} → {new}" for old, new in sorted(file_changes['renamed_files'])]
+        desc_parts.append(f"rename {len(renames)} files")
     
-    # Handle content changes
-    if changes['security']:
-        items = sorted(changes['security'])
-        desc_parts.append(f"enhance security in {', '.join(items)}")
+    # Group content changes by file
+    for category in ['security', 'features', 'fixes', 'refactors', 'performance', 
+                    'tests', 'docs', 'config', 'dependencies']:
+        for file in changes[category]:
+            file_changes_map[file].append(category)
     
-    if changes['features']:
-        items = sorted(changes['features'])
-        if len(items) == 1:
-            desc_parts.append(f"implement new feature in {items[0]}")
+    # Generate concise descriptions for each file
+    for file, categories in sorted(file_changes_map.items()):
+        # Prioritize changes
+        if 'security' in categories:
+            desc_parts.append(f"enhance security in {os.path.basename(file)}")
+        elif 'fixes' in categories:
+            desc_parts.append(f"fix issues in {os.path.basename(file)}")
+        elif 'features' in categories:
+            desc_parts.append(f"add features in {os.path.basename(file)}")
+        elif 'refactors' in categories:
+            desc_parts.append(f"refactor {os.path.basename(file)}")
+        elif 'performance' in categories:
+            desc_parts.append(f"optimize {os.path.basename(file)}")
         else:
-            desc_parts.append(f"implement new features in {', '.join(items)}")
-    
-    if changes['fixes']:
-        items = sorted(changes['fixes'])
-        if len(items) == 1:
-            desc_parts.append(f"fix issue in {items[0]}")
-        else:
-            desc_parts.append(f"fix issues in {', '.join(items)}")
-    
-    if changes['refactors']:
-        items = sorted(changes['refactors'])
-        if len(items) == 1:
-            desc_parts.append(f"refactor code in {items[0]}")
-        else:
-            desc_parts.append(f"refactor code in {', '.join(items)}")
-    
-    if changes['performance']:
-        items = sorted(changes['performance'])
-        if len(items) == 1:
-            desc_parts.append(f"optimize performance in {items[0]}")
-        else:
-            desc_parts.append(f"optimize performance in {', '.join(items)}")
-    
-    if changes['tests']:
-        items = sorted(changes['tests'])
-        if len(items) == 1:
-            desc_parts.append(f"update tests in {items[0]}")
-        else:
-            desc_parts.append(f"update tests in {', '.join(items)}")
-    
-    if changes['docs']:
-        items = sorted(changes['docs'])
-        if len(items) == 1:
-            desc_parts.append(f"update documentation in {items[0]}")
-        else:
-            desc_parts.append(f"update documentation in {', '.join(items)}")
-    
-    if changes['config']:
-        items = sorted(changes['config'])
-        if len(items) == 1:
-            desc_parts.append(f"update configuration in {items[0]}")
-        else:
-            desc_parts.append(f"update configuration in {', '.join(items)}")
-    
-    if changes['dependencies']:
-        items = sorted(changes['dependencies'])
-        if len(items) == 1:
-            desc_parts.append(f"update dependencies in {items[0]}")
-        else:
-            desc_parts.append(f"update dependencies in {', '.join(items)}")
+            # Combine remaining changes
+            changes_str = ', '.join(categories)
+            desc_parts.append(f"update {os.path.basename(file)} ({changes_str})")
     
     # Add code metrics summary if significant changes
     metrics = changes['code_metrics']
     if metrics['lines_added'] + metrics['lines_removed'] > 100:
         desc_parts.append(f"({metrics['lines_added']}+/{metrics['lines_removed']}- lines)")
     
-    return ' and '.join(desc_parts) or "update code"
+    # Join descriptions with semicolons for better readability
+    return '; '.join(desc_parts) or "update code"
 
 def analyze_changes(diff: str, original_content: Dict[str, str]) -> Optional[str]:
     """Analyze the changes to generate a detailed commit message."""
